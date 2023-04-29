@@ -10,8 +10,10 @@ As we're using a built-in XML parser underneath, errors on that level
 break the full parsing, and result in a single Junk entry.
 """
 
+from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING, Iterator, Optional, Tuple, Union, cast
 from xml.dom import minidom
 from xml.dom.minidom import Node
 
@@ -26,13 +28,27 @@ from .base import (
     Whitespace,
 )
 
+if TYPE_CHECKING:
+    from typing_extensions import Literal
+    from xml.dom.minicompat import NodeList
+
 
 class AndroidEntity(Entity):
-    def __init__(self, ctx, pre_comment, white_space, node, all, key, raw_val, val):
+    def __init__(
+        self,
+        ctx: Parser.Context,
+        pre_comment: Union[XMLComment, None],
+        white_space: Union[XMLWhitespace, None],
+        node: minidom.Element,
+        all: str,
+        key: str,
+        raw_val: str,
+        val: str,
+    ) -> None:
         # fill out superclass as good as we can right now
         # most span can get modified at endElement
         super().__init__(
-            ctx, pre_comment, white_space, (None, None), (None, None), (None, None)
+            ctx, pre_comment, white_space, (None, None), (None, None), (None, None)  # type: ignore
         )
         self.node = node
         self._all_literal = all
@@ -41,7 +57,7 @@ class AndroidEntity(Entity):
         self._val_literal = val
 
     @property
-    def all(self):
+    def all(self) -> str:
         chunks = []
         if self.pre_comment is not None:
             chunks.append(self.pre_comment.all)
@@ -51,28 +67,25 @@ class AndroidEntity(Entity):
         return "".join(chunks)
 
     @property
-    def key(self):
+    def key(self) -> str:
         return self._key_literal
 
     @property
-    def raw_val(self):
+    def raw_val(self) -> str:
         return self._raw_val_literal
 
-    def position(self, offset=0):
+    def position(self, offset: int = 0) -> Tuple[Literal[0], int]:
         return (0, offset)
 
-    def value_position(self, offset=0):
+    def value_position(self, offset: int = 0) -> Tuple[Literal[0], int]:
         return (0, offset)
 
-    def wrap(self, raw_val):
-        clone = self.node.cloneNode(True)
-        if clone.childNodes.length == 1:
-            child = clone.childNodes[0]
-        else:
-            for child in clone.childNodes:
-                if child.nodeType == Node.CDATA_SECTION_NODE:
-                    break
-        child.data = raw_val
+    def wrap(self, raw_val: str) -> LiteralEntity:
+        clone = cast(minidom.Element, self.node.cloneNode(True))  # type:ignore
+        for child in clone.childNodes:
+            if child.nodeType == Node.CDATA_SECTION_NODE:
+                break
+        child.data = raw_val  # pyright: ignore
         all = []
         if self.pre_comment is not None:
             all.append(self.pre_comment.all)
@@ -83,91 +96,91 @@ class AndroidEntity(Entity):
 
 
 class NodeMixin:
-    def __init__(self, all, value):
+    def __init__(self, all: str, value: str) -> None:
         self._all_literal = all
         self._val_literal = value
 
     @property
-    def all(self):
+    def all(self) -> str:
         return self._all_literal
 
     @property
-    def key(self):
+    def key(self) -> str:
         return self._all_literal
 
     @property
-    def raw_val(self):
+    def raw_val(self) -> str:
         return self._val_literal
 
-    def position(self, offset=0):
+    def position(self, offset: int = 0) -> Tuple[Literal[0], int]:
         return (0, offset)
 
-    def value_position(self, offset=0):
+    def value_position(self, offset: int = 0) -> Tuple[Literal[0], int]:
         return (0, offset)
 
 
-class XMLWhitespace(NodeMixin, Whitespace):
+class XMLWhitespace(NodeMixin, Whitespace):  # type:ignore[misc]
     pass
 
 
 class XMLComment(NodeMixin, Comment):
     @property
-    def val(self):
+    def val(self) -> str:
         return self._val_literal
 
     @property
-    def key(self):
+    def key(self) -> None:  # type:ignore[override]
         return None
 
 
 # DocumentWrapper is sticky in serialization.
 # Always keep the one from the reference document.
 class DocumentWrapper(NodeMixin, StickyEntry):
-    def __init__(self, key, all):
+    def __init__(self, key: str, all: str) -> None:
         self._all_literal = all
         self._val_literal = all
         self._key_literal = key
 
     @property
-    def key(self):
+    def key(self) -> str:
         return self._key_literal
 
 
 class XMLJunk(Junk):
-    def __init__(self, all):
-        super().__init__(None, (0, 0))
+    def __init__(self, all: str) -> None:
+        super().__init__(None, (0, 0))  # type: ignore
         self._all_literal = all
 
     @property
-    def all(self):
+    def all(self) -> str:
         return self._all_literal
 
-    def position(self, offset=0):
+    def position(self, offset: int = 0) -> Tuple[Literal[0], int]:
         return (0, offset)
 
-    def value_position(self, offset=0):
+    def value_position(self, offset: int = 0) -> Tuple[Literal[0], int]:
         return (0, offset)
 
 
-def textContent(node):
+def textContent(node: minidom.Element) -> str:
     if node.childNodes.length == 0:
         return ""
     for child in node.childNodes:
         if child.nodeType == minidom.Node.CDATA_SECTION_NODE:
-            return child.data
+            return cast(str, child.data)
     if (
         node.childNodes.length != 1
         or node.childNodes[0].nodeType != minidom.Node.TEXT_NODE
     ):
         # Return something, we'll fail in checks on this
-        return node.toxml()
-    return node.childNodes[0].data
+        return cast(str, node.toxml())
+    return cast(str, node.childNodes[0].data)
 
 
 NEWLINE = re.compile(r"[ \t]*\n[ \t]*")
 
 
-def normalize(val):
+def normalize(val: str) -> str:
     return NEWLINE.sub("\n", val.strip(" \t"))
 
 
@@ -175,11 +188,15 @@ class AndroidParser(Parser):
     # Android does l10n fallback at runtime, don't merge en-US strings
     capabilities = CAN_SKIP
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.last_comment = None
 
-    def walk(self, only_localizable=False):
+    def walk(  # type:ignore[override]
+        self, only_localizable: bool = False
+    ) -> Iterator[
+        Union[DocumentWrapper, XMLWhitespace, AndroidEntity, XMLComment, XMLJunk]
+    ]:
         if not self.ctx:
             # loading file failed, or we just didn't load anything
             return
@@ -253,10 +270,15 @@ class AndroidParser(Parser):
         if not only_localizable:
             yield DocumentWrapper("</resources>", "</resources>\n")
 
-    def handleElement(self, element, current_comment, white_space):
+    def handleElement(
+        self,
+        element: minidom.Element,
+        current_comment: Optional[XMLComment],
+        white_space: Optional[XMLWhitespace],
+    ) -> Union[AndroidEntity, XMLJunk]:
         if element.nodeName == "string" and element.hasAttribute("name"):
             return AndroidEntity(
-                self.ctx,
+                self.ctx,  # type: ignore
                 current_comment,
                 white_space,
                 element,
@@ -268,25 +290,30 @@ class AndroidParser(Parser):
         else:
             return XMLJunk(element.toxml())
 
-    def handleComment(self, node, root_children, child_num):
+    def handleComment(
+        self,
+        node: minidom.Comment,
+        root_children: NodeList[minidom.Element],
+        child_num: int,
+    ) -> Tuple[XMLComment, int]:
         all = node.toxml()
         val = normalize(node.nodeValue)
         while True:
             child_num += 1
             if child_num >= len(root_children):
                 break
-            node = root_children[child_num]
-            if node.nodeType == Node.TEXT_NODE:
-                if node.nodeValue.count("\n") > 1:
+            node_ = root_children[child_num]
+            if node_.nodeType == Node.TEXT_NODE:
+                if node_.nodeValue.count("\n") > 1:
                     break
-                white = node
+                white = node_
                 child_num += 1
                 if child_num >= len(root_children):
                     break
-                node = root_children[child_num]
+                node_ = root_children[child_num]
             else:
                 white = None
-            if node.nodeType != Node.COMMENT_NODE:
+            if node_.nodeType != Node.COMMENT_NODE:
                 if white is not None:
                     # do not consume this node
                     child_num -= 1
@@ -294,6 +321,6 @@ class AndroidParser(Parser):
             if white:
                 all += white.toxml()
                 val += normalize(white.nodeValue)
-            all += node.toxml()
-            val += normalize(node.nodeValue)
+            all += node_.toxml()
+            val += normalize(node_.nodeValue)
         return XMLComment(all, val), child_num

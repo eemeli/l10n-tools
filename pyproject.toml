@@ -39,7 +39,8 @@ profile = "black"
 extra_standard_library = ["typing_extensions", "_typeshed"]
 
 [tool.mypy]
-strict = false
+exclude = "^tests/"
+strict = true
 
 [tool.setuptools]
 platforms = ["any"]

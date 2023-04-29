@@ -2,6 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import re
 
 from .android import AndroidParser
@@ -56,22 +58,6 @@ __all__ = [
     "PropertiesEntity",
 ]
 
-__constructors = []
-
-
-def getParser(path):
-    for item in __constructors:
-        if re.search(item[0], path):
-            return item[1]
-    raise UserWarning("Cannot find Parser")
-
-
-def hasParser(path):
-    try:
-        return bool(getParser(path))
-    except UserWarning:
-        return False
-
 
 __constructors = [
     ("strings.*\\.xml$", AndroidParser()),
@@ -82,3 +68,17 @@ __constructors = [
     ("\\.ftl$", FluentParser()),
     ("\\.pot?$", PoParser()),
 ]
+
+
+def getParser(path: str) -> Parser:
+    for item in __constructors:
+        if re.search(item[0], path):
+            return item[1]
+    raise UserWarning("Cannot find Parser")
+
+
+def hasParser(path: str) -> bool:
+    try:
+        return bool(getParser(path))
+    except UserWarning:
+        return False
